@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import authenticate_user, create_access_token, get_current_user, require_bioops
@@ -114,16 +114,34 @@ def get_job(job_id: int, _user: dict = Depends(get_current_user), db: Session = 
     return job
 
 
+ALLOWED_STAGE_STATUSES = {"pending", "running", "success", "failed", "skipped"}
+
+
 @router.get("/jobs/{job_id}/stages", response_model=list[StageOut])
 def get_job_stages(
-    job_id: int, _user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+    job_id: int,
+    statuses: list[str] | None = Query(default=None),
+    q: str | None = Query(default=None),
+    _user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
+    """阶段查询：支持状态多选 + 消息关键字（服务端过滤，stage_order 保持全量序号）。"""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="作业不存在")
-    return (
-        db.query(JobStage)
-        .filter(JobStage.job_id == job_id)
-        .order_by(JobStage.stage_order)
-        .all()
-    )
+
+    selected = [s.strip() for s in (statuses or []) if s and s.strip()]
+    invalid = [s for s in selected if s not in ALLOWED_STAGE_STATUSES]
+    if invalid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"非法阶段状态: {', '.join(invalid)}",
+        )
+
+    query = db.query(JobStage).filter(JobStage.job_id == job_id)
+    if selected:
+        query = query.filter(JobStage.status.in_(selected))
+    keyword = (q or "").strip()
+    if keyword:
+        query = query.filter(JobStage.message.ilike(f"%{keyword}%"))
+    return query.order_by(JobStage.stage_order).all()

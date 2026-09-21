@@ -57,7 +57,7 @@ docker compose up --build
 - `POST /api/jobs` `{ "sampleId": 1 }` 或 `{ "fastqText": "..." }`
 - `GET  /api/jobs`
 - `GET  /api/jobs/{id}`
-- `GET  /api/jobs/{id}/stages`
+- `GET  /api/jobs/{id}/stages`（支持服务端过滤：`?statuses=failed&statuses=skipped&q=消息关键字`，返回保留全量 `stage_order` 序号）
 
 ## 本地单测（可选）
 

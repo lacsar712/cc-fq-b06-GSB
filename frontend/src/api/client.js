@@ -52,8 +52,15 @@ export async function getJob(id) {
   return data
 }
 
-export async function getJobStages(id) {
-  const { data } = await api.get(`/jobs/${id}/stages`)
+export async function getJobStages(id, filters = {}) {
+  const { data } = await api.get(`/jobs/${id}/stages`, {
+    params: {
+      statuses: filters.statuses?.length ? filters.statuses : undefined,
+      q: filters.q?.trim() ? filters.q.trim() : undefined,
+    },
+    // 数组序列化为 statuses=a&statuses=b（后端按多值查询参数解析）
+    paramsSerializer: { indexes: null },
+  })
   return data
 }
 
