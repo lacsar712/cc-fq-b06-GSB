@@ -1,4 +1,5 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import authenticate_user, create_access_token, get_current_user, require_bioops
@@ -18,6 +19,9 @@ from app.schemas import (
 
 
 router = APIRouter(prefix="/api")
+
+# 阶段状态白名单（与 JobStage.status 取值一致）
+STAGE_STATUS_VALUES = {"pending", "running", "success", "failed", "skipped"}
 
 
 def _run_job_background(job_id: int) -> None:
@@ -116,14 +120,44 @@ def get_job(job_id: int, _user: dict = Depends(get_current_user), db: Session = 
 
 @router.get("/jobs/{job_id}/stages", response_model=list[StageOut])
 def get_job_stages(
-    job_id: int, _user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+    job_id: int,
+    status_filter: list[str] | None = Query(
+        default=None,
+        alias="status",
+        description="阶段状态过滤，可多选，支持重复参数或逗号分隔（如 status=failed&status=skipped）",
+    ),
+    keyword: str | None = Query(default=None, description="消息/阶段名关键字，模糊匹配"),
+    _user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="作业不存在")
-    return (
-        db.query(JobStage)
-        .filter(JobStage.job_id == job_id)
-        .order_by(JobStage.stage_order)
-        .all()
-    )
+
+    # 展开并校验状态集合：兼容重复 query 参数与逗号分隔两种多选写法
+    statuses: set[str] = set()
+    for raw in status_filter or []:
+        for part in raw.split(","):
+            value = part.strip()
+            if value:
+                statuses.add(value)
+    invalid = statuses - STAGE_STATUS_VALUES
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"非法阶段状态: {', '.join(sorted(invalid))}",
+        )
+
+    query = db.query(JobStage).filter(JobStage.job_id == job_id)
+    if statuses:
+        query = query.filter(JobStage.status.in_(statuses))
+    if keyword and keyword.strip():
+        kw = keyword.strip()
+        # 命中消息文本或阶段名（英文 actor_name / 中文阶段别名），保证序号不过滤时不变
+        query = query.filter(
+            or_(
+                JobStage.message.ilike(f"%{kw}%"),
+                JobStage.actor_name.ilike(f"%{kw}%"),
+            )
+        )
+    return query.order_by(JobStage.stage_order).all()

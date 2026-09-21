@@ -43,6 +43,7 @@ class QueueMessage:
 
 class ParseActor:
     name = "ParseActor"
+    label = "解析"
 
     async def run(self, in_q: asyncio.Queue, out_q: asyncio.Queue) -> None:
         msg: QueueMessage = await in_q.get()
@@ -58,9 +59,10 @@ class ParseActor:
             ctx.metrics["reads"] = len(reads)
             await out_q.put(QueueMessage(ok=True, context=ctx))
         except ActorError as exc:
-            ctx.error = str(exc)
+            err = f"解析失败：{exc}"
+            ctx.error = err
             ctx.failed_actor = self.name
-            await out_q.put(QueueMessage(ok=False, context=ctx, error=str(exc)))
+            await out_q.put(QueueMessage(ok=False, context=ctx, error=err))
 
     def _parse(self, text: str) -> list[FastqRead]:
         # Keep blank lines as structural errors for malformed files
@@ -99,6 +101,7 @@ class ParseActor:
 
 class QualityHistActor:
     name = "QualityHistActor"
+    label = "质量统计"
 
     async def run(self, in_q: asyncio.Queue, out_q: asyncio.Queue) -> None:
         msg: QueueMessage = await in_q.get()
@@ -151,6 +154,7 @@ class QualityHistActor:
 
 class NContentActor:
     name = "NContentActor"
+    label = "N 含量"
 
     async def run(self, in_q: asyncio.Queue, out_q: asyncio.Queue) -> None:
         msg: QueueMessage = await in_q.get()
@@ -178,6 +182,7 @@ class NContentActor:
 
 class ReportActor:
     name = "ReportActor"
+    label = "报告汇总"
 
     async def run(self, in_q: asyncio.Queue, out_q: asyncio.Queue) -> None:
         msg: QueueMessage = await in_q.get()
@@ -221,3 +226,6 @@ class ReportActor:
 
 
 ACTOR_CHAIN = [ParseActor, QualityHistActor, NContentActor, ReportActor]
+
+# actor_name -> 中文阶段名，供展示与消息关键字过滤使用
+STAGE_LABELS = {cls.name: cls.label for cls in ACTOR_CHAIN}

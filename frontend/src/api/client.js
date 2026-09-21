@@ -52,8 +52,8 @@ export async function getJob(id) {
   return data
 }
 
-export async function getJobStages(id) {
-  const { data } = await api.get(`/jobs/${id}/stages`)
+export async function getJobStages(id, params = {}) {
+  const { data } = await api.get(`/jobs/${id}/stages`, { params })
   return data
 }
 
